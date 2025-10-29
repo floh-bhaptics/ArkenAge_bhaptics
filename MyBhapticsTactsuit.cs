@@ -16,6 +16,8 @@ namespace MyBhapticsTactsuit
     {
         public bool suitDisabled = true;
         private static ManualResetEvent HeartBeat_mrse = new ManualResetEvent(false);
+        private static ManualResetEvent ParticlesLeft_mrse = new ManualResetEvent(false);
+        private static ManualResetEvent ParticlesRight_mrse = new ManualResetEvent(false);
 
 
         public void HeartBeatFunc()
@@ -23,8 +25,28 @@ namespace MyBhapticsTactsuit
             while (true)
             {
                 HeartBeat_mrse.WaitOne();
-                BhapticsSDK2.Play("HeartBeat".ToLower());
+                BhapticsSDK2.Play("heartbeat".ToLower());
                 Thread.Sleep(1000);
+            }
+        }
+
+        public void ParticlesLeftFunc()
+        {
+            while (true)
+            {
+                ParticlesLeft_mrse.WaitOne();
+                BhapticsSDK2.Play("receive_particles_left".ToLower());
+                Thread.Sleep(500);
+            }
+        }
+
+        public void ParticlesRightFunc()
+        {
+            while (true)
+            {
+                ParticlesRight_mrse.WaitOne();
+                BhapticsSDK2.Play("receive_particles_right".ToLower());
+                Thread.Sleep(500);
             }
         }
 
@@ -37,9 +59,13 @@ namespace MyBhapticsTactsuit
             var res = BhapticsSDK2.Initialize("6902702f7c2f71a0f9dc2b58", "7q82BjAN9fk4wnXjGr8O");
             
             suitDisabled = res != 0;
-            LOG("Starting HeartBeat and NeckTingle thread... " + res);
+            LOG("Starting HeartBeat and Particles thread... " + res);
             Thread HeartBeatThread = new Thread(HeartBeatFunc);
             HeartBeatThread.Start();
+            Thread ParticlesLeftThread = new Thread(ParticlesLeftFunc);
+            ParticlesLeftThread.Start();
+            Thread ParticlesRightThread = new Thread(ParticlesRightFunc);
+            ParticlesRightThread.Start();
         }
 
         public void LOG(string logStr)
@@ -154,6 +180,27 @@ namespace MyBhapticsTactsuit
         {
             HeartBeat_mrse.Reset();
         }
+
+        public void StartParticlesLeft()
+        {
+            ParticlesLeft_mrse.Set();
+        }
+
+        public void StopParticlesLeft()
+        {
+            ParticlesLeft_mrse.Reset();
+        }
+
+        public void StartParticlesRight()
+        {
+            ParticlesRight_mrse.Set();
+        }
+
+        public void StopParticlesRight()
+        {
+            ParticlesRight_mrse.Reset();
+        }
+
 
         public bool IsPlaying(String effect)
         {
