@@ -188,11 +188,11 @@ namespace ArkenAge_bhaptics
             [HarmonyPostfix]
             public static void Postfix(EquipmentSlot __instance)
             {
-                if (__instance.name.Contains("LeftSide"))
+                if (__instance.name.Contains("LeftSide") || __instance.name.Contains("LeftHip") || __instance.name.Contains("LeftLeg"))
                 {
                     tactsuitVr.PlaybackHaptics("belly_put_l");
                 }
-                else if (__instance.name.Contains("RightSide"))
+                if (__instance.name.Contains("RightSide") || __instance.name.Contains("RightHip") || __instance.name.Contains("RightLeg"))
                 {
                     tactsuitVr.PlaybackHaptics("belly_put_r");
                 }
@@ -213,11 +213,11 @@ namespace ArkenAge_bhaptics
             [HarmonyPostfix]
             public static void Postfix(EquipmentSlot __instance)
             {
-                if (__instance.name.Contains("LeftSide"))
+                if (__instance.name.Contains("LeftSide") || __instance.name.Contains("LeftHip") || __instance.name.Contains("LeftLeg"))
                 {
                     tactsuitVr.PlaybackHaptics("belly_remove_l");
                 }
-                else if (__instance.name.Contains("RightSide"))
+                if (__instance.name.Contains("RightSide") || __instance.name.Contains("RightHip") || __instance.name.Contains("RightLeg"))
                 {
                     tactsuitVr.PlaybackHaptics("belly_remove_l");
                 }
