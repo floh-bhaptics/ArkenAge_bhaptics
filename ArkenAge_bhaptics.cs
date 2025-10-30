@@ -103,9 +103,11 @@ namespace ArkenAge_bhaptics
         public class bhaptics_PlayerJump
         {
             [HarmonyPostfix]
-            public static void Postfix(PlayerCharacterController __instance)
+            public static void Postfix(PlayerCharacterController __instance, bool ___jump, float ___jumpDurationTimer, float ___jumpInputDownTime)
             {
-                if (__instance.Frozen || __instance.Grounded || __instance.Dashing || __instance.KneesFrozen ) return;
+                if (__instance.Frozen || __instance.Grounded || __instance.Dashing || __instance.KneesFrozen || __instance.PreviousState == PlayerCharacterControllerStateEnum.Jumping) return;
+                if (__instance.State == PlayerCharacterControllerStateEnum.InAir) return;
+                if (___jumpDurationTimer > 0.1f) return;
                 if (tactsuitVr.IsPlaying("jump")) return;
                 if (__instance.State == PlayerCharacterControllerStateEnum.Jumping) tactsuitVr.PlaybackHaptics("jump");
             }
@@ -211,7 +213,6 @@ namespace ArkenAge_bhaptics
             [HarmonyPostfix]
             public static void Postfix(EquipmentSlot __instance)
             {
-                tactsuitVr.LOG("EquipmentSlot: " + __instance.name);
                 if (__instance.name.Contains("LeftSide"))
                 {
                     tactsuitVr.PlaybackHaptics("belly_remove_l");
@@ -260,7 +261,6 @@ namespace ArkenAge_bhaptics
                 float hitAngle;
                 float hitShift;
                 (hitAngle, hitShift) = getAngleAndShift(playerTransform, hit.Position);
-                if (hitShift >= 0.5f) { tactsuitVr.HeadShot(hitAngle); return; }
                 tactsuitVr.PlayBackHit("impact", hitAngle, hitShift);
             }
         }
@@ -390,7 +390,6 @@ namespace ArkenAge_bhaptics
             {
 
 
-                tactsuitVr.LOG("PlayerGun.Shoot");
                 bool isRight = !___handleInteractableSpot.InteractingInteractor.IsLeftHand;
                 if (__instance.name.Contains("HeavyGun"))
                 {
@@ -402,9 +401,26 @@ namespace ArkenAge_bhaptics
                     if (isRight) tactsuitVr.PlaybackHaptics("recoil_pistol_r");
                     else tactsuitVr.PlaybackHaptics("recoil_pistol_l");
                 }
-                else tactsuitVr.LOG("Gun: " + __instance.name);
             }
         }
+
+
+        [HarmonyPatch(typeof(PlayerMeleeWeapon), "OnTriggerEnter")]
+        public class bhaptics_DealDamage
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerMeleeWeapon __instance, Collider other)
+            {
+                if (other.name.Contains("EquipmentSlot")) return;
+                if (other.name.Contains("HandInteractor")) return;
+                if (other.name.Contains("AddToInventoryTrigger")) return;
+                tactsuitVr.LOG("EnterTrigger: " +  other.name);
+                bool isRight = !__instance.HandleSpot.InteractingInteractor.IsLeftHand;
+                if (isRight) tactsuitVr.PlaybackHaptics("melee_hit_r");
+                else tactsuitVr.PlaybackHaptics("melee_hit_l");
+            }
+        }
+
 
 
         [HarmonyPatch(typeof(PlayerCharacterControllerHaptics), "OnGroundContactRegained")]
