@@ -16,7 +16,7 @@ using VitruviusVR.Player;
 using VitruviusVR.Items;
 
 
-[assembly: MelonInfo(typeof(ArkenAge_bhaptics.ArkenAge_bhaptics), "ArkenAge_bhaptics", "1.0.0", "Florian Fahrenberger")]
+[assembly: MelonInfo(typeof(ArkenAge_bhaptics.ArkenAge_bhaptics), "ArkenAge_bhaptics", "1.0.1", "Florian Fahrenberger")]
 [assembly: MelonGame("VitruviusVR", "Arken Age")]
 
 namespace ArkenAge_bhaptics
