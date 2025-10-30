@@ -104,6 +104,10 @@
       <HintPath>G:\SteamLibrary\steamapps\common\Arken Age\Arken Age_Data\Managed\VitruviusVR.Interaction.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="VitruviusVR.Items">
+      <HintPath>G:\SteamLibrary\steamapps\common\Arken Age\Arken Age_Data\Managed\VitruviusVR.Items.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="VitruviusVR.PhysicalProperties">
       <HintPath>G:\SteamLibrary\steamapps\common\Arken Age\Arken Age_Data\Managed\VitruviusVR.PhysicalProperties.dll</HintPath>
       <Private>False</Private>

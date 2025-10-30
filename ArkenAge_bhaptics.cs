@@ -13,12 +13,7 @@ using VitruviusVR.Equipment;
 using VitruviusVR.Haptics;
 using VitruviusVR.Interaction;
 using VitruviusVR.Player;
-using VitruviusVR;
-using VitruviusVR.Damage;
-using VitruviusVR.Equipment;
-using VitruviusVR.Haptics;
-using VitruviusVR.Interaction;
-using VitruviusVR.Player;
+using VitruviusVR.Items;
 
 
 [assembly: MelonInfo(typeof(ArkenAge_bhaptics.ArkenAge_bhaptics), "ArkenAge_bhaptics", "1.0.0", "Florian Fahrenberger")]
@@ -30,20 +25,15 @@ namespace ArkenAge_bhaptics
     {
         public static TactsuitVR tactsuitVr;
 
-        private static int leftHandItemID = 88888888;
-        private static int rightHandItemID = 88888888;
-        private static string leftHandItemName = null;
-        private static string rightHandItemName = null;
-
         private static int healCount = 0;
         private static float lastLegOffset = 0;
 
         public override void OnInitializeMelon()
         {
             tactsuitVr = new TactsuitVR();
-            tactsuitVr.PlaybackHaptics("HeartBeat");
+            tactsuitVr.PlaybackHaptics("heartbeat");
         }
-
+        /*
         public static KeyValuePair<float, float> GetEnemyDirection(Transform player, Vector3 enemy)
         {
             Vector3 toEnemy = enemy - player.position;
@@ -61,343 +51,454 @@ namespace ArkenAge_bhaptics
             float verticalDifference = enemy.y - player.position.y;
             return new KeyValuePair<float, float>(clockwiseAngle, verticalDifference);
         }
+        */
 
+        private static (float, float) getAngleAndShift(Transform player, Vector3 hit)
+        {
+            // bhaptics pattern starts in the front, then rotates to the left. 0° is front, 90° is left, 270° is right.
+            // y is "up", z is "forward" in local coordinates
+            Vector3 patternOrigin = new Vector3(0f, 0f, 1f);
+            Vector3 hitPosition = hit - player.position;
+            Quaternion myPlayerRotation = player.rotation;
+            Vector3 playerDir = myPlayerRotation.eulerAngles;
+            // get rid of the up/down component to analyze xz-rotation
+            Vector3 flattenedHit = new Vector3(hitPosition.x, 0f, hitPosition.z);
+
+            // get angle. .Net < 4.0 does not have a "SignedAngle" function...
+            float hitAngle = Vector3.Angle(flattenedHit, patternOrigin);
+            // check if cross product points up or down, to make signed angle myself
+            Vector3 crossProduct = Vector3.Cross(flattenedHit, patternOrigin);
+            if (crossProduct.y > 0f) { hitAngle *= -1f; }
+            // relative to player direction
+            float myRotation = hitAngle - playerDir.y;
+            // switch directions (bhaptics angles are in mathematically negative direction)
+            myRotation *= -1f;
+            // convert signed angle into [0, 360] rotation
+            if (myRotation < 0f) { myRotation = 360f + myRotation; }
+
+
+            // up/down shift is in y-direction
+            // in Shadow Legend, the torso Transform has y=0 at the neck,
+            // and the torso ends at roughly -0.5 (that's in meters)
+            // so cap the shift to [-0.5, 0]...
+            float hitShift = hitPosition.y;
+            float upperBound = 0.0f;
+            float lowerBound = -0.5f;
+            if (hitShift > upperBound) { hitShift = 0.5f; }
+            else if (hitShift < lowerBound) { hitShift = -0.5f; }
+            // ...and then spread/shift it to [-0.5, 0.5]
+            else { hitShift = (hitShift - lowerBound) / (upperBound - lowerBound) - 0.5f; }
+
+            //tactsuitVr.LOG("Relative x-z-position: " + relativeHitDir.x.ToString() + " "  + relativeHitDir.z.ToString());
+            //tactsuitVr.LOG("HitAngle: " + hitAngle.ToString());
+            //tactsuitVr.LOG("HitShift: " + hitShift.ToString());
+
+            // No tuple returns available in .NET < 4.0, so this is the easiest quickfix
+
+            //return new KeyValuePair<float, float>(myRotation, hitShift);
+            return (myRotation, hitShift);
+        }
 
         [HarmonyPatch(typeof(PlayerCharacterController), "Jump")]
-        public class bhaptics_Jump
+        public class bhaptics_PlayerJump
         {
             [HarmonyPostfix]
             public static void Postfix(PlayerCharacterController __instance)
             {
-                if (__instance.Frozen || __instance.Grounded || __instance.Dashing || __instance.KneesFrozen)
-                {
-                    return;
-                }
-                if (__instance.State == PlayerCharacterControllerStateEnum.Jumping)
-                {
-                    tactsuitVr.PlaybackHaptics("jump");
-            }
-    }
-}
-            
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerAvatar), "OnPlayerDie")]
-        private static void PlayerAvatar_OnPlayerDie_Postfix(PlayerAvatar __instance)
-        {
-            tactsuitVr.PlaybackHaptics("death");
-            tactsuitVr.StopHeartBeat();
-            //_TrueGear.StopLeftHandReceiveParticles();
-            //_TrueGear.StopRightHandReceiveParticles();
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerCharacterController), "TeleportCharacterController")]
-        private static void PlayerCharacterController_TeleportCharacterController_Postfix(PlayerCharacterController __instance)
-        {
-            tactsuitVr.PlaybackHaptics("teleport");
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerCharacterController), "OnPlayerRespawn")]
-        private static void PlayerCharacterController_OnPlayerRespawn_Postfix(PlayerCharacterController __instance)
-        {
-            tactsuitVr.PlaybackHaptics("respawn");
-        }
-
-        [HarmonyPrefix, HarmonyPatch(typeof(PlayerCharacterController), "OnHeadEnterWater")]
-        private static void PlayerCharacterController_OnHeadEnterWater_Prefix(PlayerCharacterController __instance)
-        {
-            if (__instance.State == PlayerCharacterControllerStateEnum.Grounded || __instance.State == PlayerCharacterControllerStateEnum.InAir)
-            {
-                tactsuitVr.PlaybackHaptics("PlayerEnterWater");
+                if (__instance.Frozen || __instance.Grounded || __instance.Dashing || __instance.KneesFrozen ) return;
+                if (tactsuitVr.IsPlaying("jump")) return;
+                if (__instance.State == PlayerCharacterControllerStateEnum.Jumping) tactsuitVr.PlaybackHaptics("jump");
             }
         }
 
-        [HarmonyPrefix, HarmonyPatch(typeof(PlayerCharacterController), "OnHeadExitWater")]
-        private static void PlayerCharacterController_OnHeadExitWater_Prefix(PlayerCharacterController __instance)
+        [HarmonyPatch(typeof(PlayerAvatar), "OnPlayerDie")]
+        public class bhaptics_PlayerDie
         {
-            if (__instance.State == PlayerCharacterControllerStateEnum.Swimming)
+            [HarmonyPostfix]
+            public static void Postfix(PlayerAvatar __instance)
             {
-                tactsuitVr.PlaybackHaptics("exit_water");
-            }
-        }
-
-        [HarmonyPrefix, HarmonyPatch(typeof(PlayerCharacterController), "StartDashing")]
-        private static void PlayerCharacterController_StartDashing_Prefix(PlayerCharacterController __instance)
-        {
-            tactsuitVr.PlaybackHaptics("dash_back");
-        }
-
-
-        [HarmonyPostfix, HarmonyPatch(typeof(EquipmentSlot), "AttachItem")]
-        private static void EquipmentSlot_AttachItem_Postfix(EquipmentSlot __instance)
-        {
-            if (__instance.name.Contains("LeftSide"))
-            {
-                tactsuitVr.PlaybackHaptics("belly_put_l");
-            }
-            else if (__instance.name.Contains("RightSide"))
-            {
-                tactsuitVr.PlaybackHaptics("belly_put_r");
-            }
-            else if (__instance.name.Contains("LeftShoulder"))
-            {
-                tactsuitVr.PlaybackHaptics("shoulder_put_l");
-            }
-            else if (__instance.name.Contains("RightShoulder"))
-            {
-                tactsuitVr.PlaybackHaptics("shoulder_put_r");
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(EquipmentSlot), "DetachItem")]
-        private static void EquipmentSlot_DetachItem_Postfix(EquipmentSlot __instance)
-        {
-            if (__instance.name.Contains("LeftSide"))
-            {
-                tactsuitVr.PlaybackHaptics("belly_remove_l");
-            }
-            else if (__instance.name.Contains("RightSide"))
-            {
-                tactsuitVr.PlaybackHaptics("belly_remove_l");
-            }
-            else if (__instance.name.Contains("LeftShoulder"))
-            {
-                tactsuitVr.PlaybackHaptics("shoulder_remove_l");
-            }
-            else if (__instance.name.Contains("RightShoulder"))
-            {
-                tactsuitVr.PlaybackHaptics("shoulder_remove_r");
-            }
-        }
-
-        [HarmonyPrefix, HarmonyPatch(typeof(PlayerHealth), "TakeDamage")]
-        private static void PlayerHealth_TakeDamage_Prefix(PlayerHealth __instance, DamageHit hit, int damagableIndex)
-        {
-            if (__instance.RemainingHealth <= 0.3 * __instance.MaxHealth && __instance.RemainingHealth > 0)
-            {
-                tactsuitVr.StartHeartBeat();
-            }
-            else
-            {
+                tactsuitVr.PlaybackHaptics("death");
                 tactsuitVr.StopHeartBeat();
-            }
-            var angle = GetEnemyDirection(playerTransform, hit.Position);
-            tactsuitVr.PlayBackHit("impact", angle.Key, angle.Value);
-        }
-
-        private static Transform playerTransform = null;
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerAvatar), "Update")]
-        private static void PlayerAvatar_Update_Postfix(PlayerAvatar __instance)
-        {
-            playerTransform = __instance.transform;
-        }
-
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerHealth), "Heal")]
-        private static void PlayerHealth_Heal_Postfix(PlayerHealth __instance, DamageHit hit, int damagableIndex)
-        {
-            if (__instance.RemainingHealth <= 0.3 * __instance.MaxHealth)
-            {
-                tactsuitVr.StartHeartBeat();
-            }
-            else
-            {
-                tactsuitVr.StopHeartBeat();
-            }
-            healCount += hit.Amount;
-            if (healCount >= 5)
-            {
-                healCount = 0;
-                tactsuitVr.PlaybackHaptics("healing");
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerInventorySlot), "TryAddItemToSlot")]
-        private static void PlayerInventorySlot_TryAddItemToSlot_Postfix(PlayerInventorySlot __instance, bool __result)
-        {
-            if (__result)
-            {
-                tactsuitVr.PlaybackHaptics("back_put");
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerInventorySlot), "TryAddItemToSlotStack")]
-        private static void PlayerInventorySlot_TryAddItemToSlotStack_Postfix(PlayerInventorySlot __instance, bool __result)
-        {
-            if (__result)
-            {
-                tactsuitVr.PlaybackHaptics("back_put");
-            }
-        }
-
-        [HarmonyPrefix, HarmonyPatch(typeof(PlayerInventorySlot), "RemoveNextItem")]
-        private static void PlayerInventorySlot_RemoveNextItem_Prefix(PlayerInventorySlot __instance)
-        {
-            string itemName = __instance.Items[0].Item.name;
-            if (itemName != null && (itemName.Contains("Shield") || itemName.Contains("HealthSyringe")))
-            {
-                tactsuitVr.PlaybackHaptics("chest_remove");
-            }
-            else
-            {
-                tactsuitVr.PlaybackHaptics("back_remove");
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(GadgetSlot), "ActivateCoroutine")]
-        private static void GadgetSlot_ActivateCoroutine_Postfix(GadgetSlot __instance, PlayerHandInteractor ___playerHandInteractor)
-        {
-            if (___playerHandInteractor.IsLeftHand)
-            {
-                tactsuitVr.PlaybackHaptics("LeftHandGadgetActivate");
-            }
-            else
-            {
-                tactsuitVr.PlaybackHaptics("RightHandGadgetActivate");
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(GadgetSlot), "DeactivateCoroutine")]
-        private static void GadgetSlot_DeactivateCoroutine_Postfix(GadgetSlot __instance, PlayerHandInteractor ___playerHandInteractor)
-        {
-            if (___playerHandInteractor.IsLeftHand)
-            {
-                tactsuitVr.PlaybackHaptics("LeftHandGadgetDeactivate");
-            }
-            else
-            {
-                tactsuitVr.PlaybackHaptics("RightHandGadgetDeactivate");
-            }
-        }
-
-        [HarmonyPrefix, HarmonyPatch(typeof(PlayerMouthInteractor), "OnInteractableItemColliderEnter")]
-        private static void PlayerMouthInteractor_OnInteractableItemColliderEnter_Prefix(PlayerMouthInteractor __instance, InteractableCollider collider)
-        {
-            PlayerMouthInteractable playerMouthInteractable1;
-            if (collider.gameObject.TryGetComponent<PlayerMouthInteractable>(out playerMouthInteractable1))
-            {
-                tactsuitVr.PlaybackHaptics("eating");
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(ProjectileSpawner), "ShootProjectile", new Type[] { typeof(Vector3) })]
-        private static void ProjectileSpawner_ShootProjectile_Postfix(ProjectileSpawner __instance)
-        {
-            try
-            {
-                if (!__instance.name.Contains("LightGun"))
-                {
-                    return;
-                }
-                if (leftHandItemName != null && leftHandItemName.Contains("LightGun"))
-                {
-                    tactsuitVr.PlaybackHaptics("recoil_pistol_l");
-                }
-                if (rightHandItemName != null && rightHandItemName.Contains("LightGun"))
-                {
-
-                    tactsuitVr.PlaybackHaptics("recoil_pistol_r");
-                }
-
-            }
-            catch { }
-
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(ShotgunProjectileSpawner), "ShootProjectile", new Type[] { typeof(Vector3) })]
-        private static void ShotgunProjectileSpawner_ShootProjectile_Postfix(ShotgunProjectileSpawner __instance)
-        {
-            try
-            {
-                if (!__instance.name.Contains("HeavyGun"))
-                {
-                    return;
-                }
-                if (leftHandItemName != null && leftHandItemName.Contains("HeavyGun"))
-                {
-                    tactsuitVr.PlaybackHaptics("recoil_shotgun_l");
-                }
-                if (rightHandItemName != null && rightHandItemName.Contains("HeavyGun"))
-                {
-
-                    tactsuitVr.PlaybackHaptics("recoil_shotgun_r");
-                }
-            }
-            catch { }
-        }
-
-
-
-        [HarmonyPrefix, HarmonyPatch(typeof(PlayerCharacterControllerHaptics), "OnGroundContactRegained")]
-        private static void PlayerCharacterControllerHaptics_OnGroundContactRegained_Prefix(PlayerCharacterControllerHaptics __instance, PlayerCharacterController ___playerCharacterController, float ___hardLandingMinDistance)
-        {
-            float fall_height = Mathf.Abs(Singleton<MainCamera>.Instance.transform.position.y - ___playerCharacterController.InAirApex);
-            if (fall_height >= ___hardLandingMinDistance)
-            {
-                tactsuitVr.PlaybackHaptics("hit_ground");
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerHandInteractor), "StartReceiveParticles")]
-        private static void PlayerHandInteractor_StartReceiveParticles_Postfix(PlayerHandInteractor __instance)
-        {
-            if (__instance.IsLeftHand)
-            {
-                tactsuitVr.StartParticlesLeft();
-            }
-            else
-            {
-                tactsuitVr.StartParticlesRight();
-            }
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerHandInteractor), "StopReceiveParticles")]
-        private static void PlayerHandInteractor_StopReceiveParticles_Postfix(PlayerHandInteractor __instance)
-        {
-            if (__instance.IsLeftHand)
-            {
                 tactsuitVr.StopParticlesLeft();
-            }
-            else
-            {
                 tactsuitVr.StopParticlesRight();
             }
         }
 
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerVineHelper), "AttachVines")]
-        private static void PlayerVineHelper_AttachVines_Postfix(PlayerVineHelper __instance)
+        [HarmonyPatch(typeof(PlayerCharacterController), "TeleportCharacterController")]
+        public class bhaptics_PlayerTeleport
         {
-            if (__instance.OnVinesAttached == null)
+            [HarmonyPostfix]
+            public static void Postfix(PlayerCharacterController __instance)
             {
-                return;
-            }
-            tactsuitVr.PlaybackHaptics("attach_vines");
-        }
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerVineHelper), "DetachVines")]
-        private static void PlayerVineHelper_DetachVines_Postfix(PlayerVineHelper __instance)
-        {
-            if (__instance.OnVinesDetached == null)
-            {
-                return;
-            }
-            tactsuitVr.PlaybackHaptics("detach_vines");
-        }
-
-
-
-        [HarmonyPostfix, HarmonyPatch(typeof(PlayerCharacterController), "SetLegHeight")]
-        private static void PlayerCharacterController_SetLegHeight_Postfix(PlayerCharacterController __instance, float offset)
-        {
-            if (__instance.State == PlayerCharacterControllerStateEnum.Jumping || __instance.State == PlayerCharacterControllerStateEnum.InAir)
-            {
-                return;
-            }
-            if (Math.Abs(offset - lastLegOffset) > 0.1f)
-            {
-                lastLegOffset = offset;
-                tactsuitVr.PlaybackHaptics("crouch");
+                tactsuitVr.PlaybackHaptics("teleport");
             }
         }
 
+        [HarmonyPatch(typeof(PlayerCharacterController), "OnPlayerRespawn")]
+        public class bhaptics_PlayerRespawn
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerCharacterController __instance)
+            {
+                tactsuitVr.PlaybackHaptics("respawn");
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerCharacterController), "OnHeadEnterWater")]
+        public class bhaptics_EnterWater
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerCharacterController __instance)
+            {
+                if (__instance.State == PlayerCharacterControllerStateEnum.Grounded || __instance.State == PlayerCharacterControllerStateEnum.InAir)
+                {
+                    tactsuitVr.PlaybackHaptics("PlayerEnterWater");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerCharacterController), "OnHeadExitWater")]
+        public class bhaptics_ExitWater
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerCharacterController __instance)
+            {
+                if (__instance.State == PlayerCharacterControllerStateEnum.Grounded || __instance.State == PlayerCharacterControllerStateEnum.InAir)
+                {
+                    tactsuitVr.PlaybackHaptics("PlayerEnterWater");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerCharacterController), "StartDashing")]
+        public class bhaptics_Dash
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerCharacterController __instance)
+            {
+                tactsuitVr.PlaybackHaptics("dash_back");
+            }
+        }
+
+        [HarmonyPatch(typeof(EquipmentSlot), "AttachItem")]
+        public class bhaptics_AttachItem
+        {
+            [HarmonyPostfix]
+            public static void Postfix(EquipmentSlot __instance)
+            {
+                if (__instance.name.Contains("LeftSide"))
+                {
+                    tactsuitVr.PlaybackHaptics("belly_put_l");
+                }
+                else if (__instance.name.Contains("RightSide"))
+                {
+                    tactsuitVr.PlaybackHaptics("belly_put_r");
+                }
+                else if (__instance.name.Contains("LeftShoulder"))
+                {
+                    tactsuitVr.PlaybackHaptics("shoulder_put_l");
+                }
+                else if (__instance.name.Contains("RightShoulder"))
+                {
+                    tactsuitVr.PlaybackHaptics("shoulder_put_r");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(EquipmentSlot), "DetachItem")]
+        public class bhaptics_DetachItem
+        {
+            [HarmonyPostfix]
+            public static void Postfix(EquipmentSlot __instance)
+            {
+                tactsuitVr.LOG("EquipmentSlot: " + __instance.name);
+                if (__instance.name.Contains("LeftSide"))
+                {
+                    tactsuitVr.PlaybackHaptics("belly_remove_l");
+                }
+                else if (__instance.name.Contains("RightSide"))
+                {
+                    tactsuitVr.PlaybackHaptics("belly_remove_l");
+                }
+                else if (__instance.name.Contains("LeftShoulder"))
+                {
+                    tactsuitVr.PlaybackHaptics("shoulder_remove_l");
+                }
+                else if (__instance.name.Contains("RightShoulder"))
+                {
+                    tactsuitVr.PlaybackHaptics("shoulder_remove_r");
+                }
+            }
+        }
+
+        private static Transform playerTransform = null;
+        [HarmonyPatch(typeof(PlayerAvatar), "Update")]
+        public class bhaptics_movePlayer
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerAvatar __instance)
+            {
+                playerTransform = __instance.transform;
+            }
+        }
+
+
+        [HarmonyPatch(typeof(PlayerHealth), "TakeDamage")]
+        public class bhaptics_TakeDamage
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerHealth __instance, DamageHit hit, int damagableIndex)
+            {
+                if (__instance.RemainingHealth <= 0.3 * __instance.MaxHealth && __instance.RemainingHealth > 0)
+                {
+                    tactsuitVr.StartHeartBeat();
+                }
+                else
+                {
+                    tactsuitVr.StopHeartBeat();
+                }
+                float hitAngle;
+                float hitShift;
+                (hitAngle, hitShift) = getAngleAndShift(playerTransform, hit.Position);
+                if (hitShift >= 0.5f) { tactsuitVr.HeadShot(hitAngle); return; }
+                tactsuitVr.PlayBackHit("impact", hitAngle, hitShift);
+            }
+        }
+
+
+
+        [HarmonyPatch(typeof(PlayerHealth), "Heal")]
+        public class bhaptics_Heal
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerHealth __instance, DamageHit hit, int damagableIndex)
+            {
+                if (__instance.RemainingHealth <= 0.3 * __instance.MaxHealth)
+                {
+                    tactsuitVr.StartHeartBeat();
+                }
+                else
+                {
+                    tactsuitVr.StopHeartBeat();
+                }
+                healCount += hit.Amount;
+                if (healCount >= 5)
+                {
+                    healCount = 0;
+                    tactsuitVr.PlaybackHaptics("healing");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerInventorySlot), "TryAddItemToSlot")]
+        public class bhaptics_putItem
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerInventorySlot __instance, bool __result)
+            {
+                if (__result)
+                {
+                    tactsuitVr.PlaybackHaptics("back_put");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerInventorySlot), "TryAddItemToSlotStack")]
+        public class bhaptics_putItemStack
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerInventorySlot __instance, bool __result)
+            {
+                if (__result)
+                {
+                    tactsuitVr.PlaybackHaptics("back_put");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerInventorySlot), "RemoveNextItem")]
+        public class bhaptics_removeItem
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerInventorySlot __instance)
+            {
+                string itemName = __instance.Items[0].Item.name;
+                if (itemName != null && (itemName.Contains("Shield") || itemName.Contains("HealthSyringe")))
+                {
+                    tactsuitVr.PlaybackHaptics("chest_remove");
+                }
+                else
+                {
+                    tactsuitVr.PlaybackHaptics("back_remove");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(GadgetSlot), "ActivateCoroutine")]
+        public class bhaptics_activateHand
+        {
+            [HarmonyPostfix]
+            public static void Postfix(GadgetSlot __instance, PlayerHandInteractor ___playerHandInteractor)
+            {
+                if (___playerHandInteractor.IsLeftHand)
+                {
+                    tactsuitVr.PlaybackHaptics("hand_activate_l");
+                }
+                else
+                {
+                    tactsuitVr.PlaybackHaptics("hand_activate_r");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(GadgetSlot), "DeactivateCoroutine")]
+        public class bhaptics_deactivateHand
+        {
+            [HarmonyPostfix]
+            public static void Postfix(GadgetSlot __instance, PlayerHandInteractor ___playerHandInteractor)
+            {
+                if (___playerHandInteractor.IsLeftHand)
+                {
+                    tactsuitVr.PlaybackHaptics("hand_deactivate_l");
+                }
+                else
+                {
+                    tactsuitVr.PlaybackHaptics("hand_deactivate_r");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerMouthInteractor), "OnInteractableItemColliderEnter")]
+        public class bhaptics_Eating
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerMouthInteractor __instance, InteractableCollider collider)
+            {
+                PlayerMouthInteractable playerMouthInteractable1;
+                if (collider.gameObject.TryGetComponent<PlayerMouthInteractable>(out playerMouthInteractable1))
+                {
+                    tactsuitVr.PlaybackHaptics("eating");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerGun), "Shoot", new Type[] { })]
+        public class bhaptics_Shoot
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerGun __instance, InteractableSpot ___handleInteractableSpot)
+            {
+
+
+                tactsuitVr.LOG("PlayerGun.Shoot");
+                bool isRight = !___handleInteractableSpot.InteractingInteractor.IsLeftHand;
+                if (__instance.name.Contains("HeavyGun"))
+                {
+                    if (isRight) tactsuitVr.PlaybackHaptics("recoil_shotgun_r");
+                    else tactsuitVr.PlaybackHaptics("recoil_shotgun_l");
+                }
+                else if (__instance.name.Contains("LightGun"))
+                {
+                    if (isRight) tactsuitVr.PlaybackHaptics("recoil_pistol_r");
+                    else tactsuitVr.PlaybackHaptics("recoil_pistol_l");
+                }
+                else tactsuitVr.LOG("Gun: " + __instance.name);
+            }
+        }
+
+
+        [HarmonyPatch(typeof(PlayerCharacterControllerHaptics), "OnGroundContactRegained")]
+        public class bhaptics_hitGround
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerCharacterControllerHaptics __instance, PlayerCharacterController ___playerCharacterController, float ___hardLandingMinDistance)
+            {
+                float fall_height = Mathf.Abs(Singleton<MainCamera>.Instance.transform.position.y - ___playerCharacterController.InAirApex);
+                if (fall_height >= ___hardLandingMinDistance)
+                {
+                    tactsuitVr.PlaybackHaptics("hit_ground");
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerHandInteractor), "StartReceiveParticles")]
+        public class bhaptics_startReceiveParticles
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerHandInteractor __instance)
+            {
+                if (__instance.IsLeftHand)
+                {
+                    tactsuitVr.StartParticlesLeft();
+                }
+                else
+                {
+                    tactsuitVr.StartParticlesRight();
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerHandInteractor), "StopReceiveParticles")]
+        public class bhaptics_stopReceiveParticles
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerHandInteractor __instance)
+            {
+                if (__instance.IsLeftHand)
+                {
+                    tactsuitVr.StopParticlesLeft();
+                }
+                else
+                {
+                    tactsuitVr.StopParticlesRight();
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerVineHelper), "AttachVines")]
+        public class bhaptics_AttachVines
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerVineHelper __instance)
+            {
+                if (__instance.OnVinesAttached == null)
+                {
+                    return;
+                }
+                tactsuitVr.PlaybackHaptics("attach_vines");
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerVineHelper), "DetachVines")]
+        public class bhaptics_DetachVines
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerVineHelper __instance)
+            {
+                if (__instance.OnVinesAttached == null)
+                {
+                    return;
+                }
+                tactsuitVr.PlaybackHaptics("detach_vines");
+            }
+        }
+
+        [HarmonyPatch(typeof(PlayerCharacterController), "SetLegHeight")]
+        public class bhaptics_Crouch
+        {
+            [HarmonyPostfix]
+            public static void Postfix(PlayerCharacterController __instance, float offset)
+            {
+                if (__instance.State == PlayerCharacterControllerStateEnum.Jumping || __instance.State == PlayerCharacterControllerStateEnum.InAir)
+                {
+                    return;
+                }
+                if (Math.Abs(offset - lastLegOffset) > 0.1f)
+                {
+                    lastLegOffset = offset;
+                    tactsuitVr.PlaybackHaptics("crouch");
+                }
+            }
+        }
     }
 }
