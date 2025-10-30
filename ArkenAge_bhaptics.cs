@@ -414,7 +414,6 @@ namespace ArkenAge_bhaptics
                 if (other.name.Contains("EquipmentSlot")) return;
                 if (other.name.Contains("HandInteractor")) return;
                 if (other.name.Contains("AddToInventoryTrigger")) return;
-                tactsuitVr.LOG("EnterTrigger: " +  other.name);
                 bool isRight = !__instance.HandleSpot.InteractingInteractor.IsLeftHand;
                 if (isRight) tactsuitVr.PlaybackHaptics("melee_hit_r");
                 else tactsuitVr.PlaybackHaptics("melee_hit_l");
