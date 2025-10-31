@@ -16,7 +16,7 @@ using VitruviusVR.Player;
 using VitruviusVR.Items;
 
 
-[assembly: MelonInfo(typeof(ArkenAge_bhaptics.ArkenAge_bhaptics), "ArkenAge_bhaptics", "1.0.1", "Florian Fahrenberger")]
+[assembly: MelonInfo(typeof(ArkenAge_bhaptics.ArkenAge_bhaptics), "ArkenAge_bhaptics", "1.0.2", "Florian Fahrenberger")]
 [assembly: MelonGame("VitruviusVR", "Arken Age")]
 
 namespace ArkenAge_bhaptics
@@ -219,7 +219,7 @@ namespace ArkenAge_bhaptics
                 }
                 if (__instance.name.Contains("RightSide") || __instance.name.Contains("RightHip") || __instance.name.Contains("RightLeg"))
                 {
-                    tactsuitVr.PlaybackHaptics("belly_remove_l");
+                    tactsuitVr.PlaybackHaptics("belly_remove_r");
                 }
                 else if (__instance.name.Contains("LeftShoulder"))
                 {
