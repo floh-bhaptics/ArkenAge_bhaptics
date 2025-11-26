@@ -16,7 +16,7 @@ using VitruviusVR.Player;
 using VitruviusVR.Items;
 
 
-[assembly: MelonInfo(typeof(ArkenAge_bhaptics.ArkenAge_bhaptics), "ArkenAge_bhaptics", "1.0.2", "Florian Fahrenberger")]
+[assembly: MelonInfo(typeof(ArkenAge_bhaptics.ArkenAge_bhaptics), "ArkenAge_bhaptics", "1.0.3", "Florian Fahrenberger")]
 [assembly: MelonGame("VitruviusVR", "Arken Age")]
 
 namespace ArkenAge_bhaptics
@@ -382,15 +382,39 @@ namespace ArkenAge_bhaptics
             }
         }
 
-        [HarmonyPatch(typeof(PlayerGun), "Shoot", new Type[] { })]
+        [HarmonyPatch(typeof(PlayerGun), "Shoot")]
         public class bhaptics_Shoot
         {
             [HarmonyPostfix]
             public static void Postfix(PlayerGun __instance, InteractableSpot ___handleInteractableSpot)
             {
-
-
+                /*
                 bool isRight = !___handleInteractableSpot.InteractingInteractor.IsLeftHand;
+                if (__instance.name.Contains("HeavyGun"))
+                {
+                    if (isRight) tactsuitVr.PlaybackHaptics("recoil_shotgun_r");
+                    else tactsuitVr.PlaybackHaptics("recoil_shotgun_l");
+                }
+                else if (__instance.name.Contains("LightGun"))
+                {
+                    if (isRight) tactsuitVr.PlaybackHaptics("recoil_pistol_r");
+                    else tactsuitVr.PlaybackHaptics("recoil_pistol_l");
+                }
+                */
+            }
+        }
+
+
+        [HarmonyPatch(typeof(ItemRecoilHelper), "StartRecoil")]
+        public class bhaptics_Recoil
+        {
+            [HarmonyPostfix]
+            public static void Postfix(ItemRecoilHelper __instance, RecoilStats recoilStats, InteractableItem ___interactableItem, bool ___recoiling)
+            {
+                if (recoilStats.RecoilForceBackOneHand == 0f) return;
+                bool twoHanded = (___interactableItem.InteractorCount > 1);
+                if (___interactableItem.GetInteractingInteractors().Length > 1) twoHanded = true;
+                bool isRight = !___interactableItem.GetInteractingInteractors()[0].IsLeftHand;
                 if (__instance.name.Contains("HeavyGun"))
                 {
                     if (isRight) tactsuitVr.PlaybackHaptics("recoil_shotgun_r");
